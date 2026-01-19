@@ -1,0 +1,2 @@
+# Global owners
+* @yggur-au
