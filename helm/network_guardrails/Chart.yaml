@@ -1,0 +1,11 @@
+apiVersion: v2
+name: network-guardrails
+description: >-
+  Cluster-wide Cilium guardrails for the apps AKS cluster - deny-only
+  CiliumClusterwideNetworkPolicies that stop app namespaces talking to each
+  other in-cluster (app-to-app traffic must go via the shared Envoy Gateway,
+  see streams/apps/envoy) and block pod access to Azure IMDS, kubelet and
+  non-DNS kube-system pods. Policy objects only - no pods, no dependencies,
+  so no appVersion.
+type: application
+version: 0.1.0

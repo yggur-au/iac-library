@@ -1,0 +1,74 @@
+# Cluster-wide Cilium guardrails - see README.md. Every policy this chart
+# renders is DENY-ONLY with enableDefaultDeny off in both directions, so it
+# never widens what an app chart's own NetworkPolicies allow, and never on its
+# own puts a namespace into default-deny. Cilium deny rules always win over
+# allow rules, whichever policy they come from.
+
+# The shared ingress path (streams/apps/envoy). Every guarded namespace may
+# talk to/from the Envoy proxy pods here - but not to anything else in this
+# namespace (eg the Envoy Gateway controller's xDS port). This namespace gets
+# only the baseline policy, not a cross-namespace one - it IS the path between
+# namespaces.
+gateway:
+  namespace: envoy-gateway-system
+  podLabels:
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/managed-by: envoy-gateway
+
+# kube-system pods guarded namespaces may reach (egress) - CoreDNS only. Every
+# other kube-system pod is denied by the baseline policy.
+dns:
+  podLabels:
+    k8s-app: kube-dns
+
+# Baseline policy - applied to every guarded namespace, the gateway's included.
+denyEgressCidrs:
+  - 169.254.169.254/32 # Azure IMDS - pods use Workload Identity, never the node's identity
+denyEgressNodePorts:
+  - 10250 # kubelet API on every node (Cilium host / remote-node entities)
+
+# App namespaces, one cross-namespace policy each. Their pods may only talk to
+# pods in their own namespace, the gateway proxies and (egress) CoreDNS, plus:
+#   allowIngressFrom / allowEgressTo - extra peers, each {namespace, podLabels}.
+#     No podLabels = the whole namespace. At most one entry per namespace per
+#     direction, and none for the gateway namespace or (egress) kube-system -
+#     those are already covered above.
+#   allowKubeApiServer - leave the Kubernetes API reachable (controllers only).
+#     Anything else is denied the kube-apiserver entity.
+# A namespace can be listed before it exists - the policies are cluster-scoped.
+namespaces:
+  external-dns:
+    allowKubeApiServer: true # watches HTTPRoutes, no ingress needed
+  cert-manager:
+    allowKubeApiServer: true
+    allowIngressFrom:
+      # kube-apiserver -> cert-manager webhook calls come through the AKS
+      # konnectivity tunnel. Where the agent is host-networked they arrive as
+      # the remote-node entity (never denied here); as a pod they arrive from
+      # konnectivity-agent in kube-system, which this lets through.
+      - namespace: kube-system
+        podLabels:
+          app: konnectivity-agent
+  smallstep-ca: {}
+  netbox: {}
+  misp-internal: {}
+  misp-external: {}
+  log-collectors: {}
+
+# Off by default. When on, the BASELINE policy (IMDS, kubelet, non-DNS
+# kube-system) also covers every namespace not in excludeNamespaces - eg one
+# someone creates by hand - instead of only the ones listed above. It can't
+# isolate two unlisted namespaces from each other (a cluster-wide selector
+# can't say "your own namespace"), but the listed namespaces' own policies
+# already stop unlisted ones reaching them. Risk: an AKS add-on or extension
+# namespace missing from excludeNamespaces loses IMDS/kubelet access - check
+# `kubectl get ns` against this list before enabling.
+catchAll:
+  enabled: false
+  excludeNamespaces:
+    - kube-system
+    - kube-public
+    - kube-node-lease
+    - gatekeeper-system # Azure Policy add-on
+    - aks-command # az aks command invoke
+    - app-routing-system # application routing add-on (disabled on this cluster)

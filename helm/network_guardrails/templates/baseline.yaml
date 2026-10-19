@@ -1,0 +1,46 @@
+{{- $guarded := append (keys .Values.namespaces | sortAlpha) .Values.gateway.namespace }}
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: {{ include "network-guardrails.fullname" . }}-baseline
+  labels:
+    {{- include "network-guardrails.labels" . | nindent 4 }}
+spec:
+  description: "Deny-only: guarded namespaces may not reach Azure IMDS, the kubelet API or non-DNS kube-system pods"
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        {{- if .Values.catchAll.enabled }}
+        operator: NotIn
+        values: {{ toJson .Values.catchAll.excludeNamespaces }}
+        {{- else }}
+        operator: In
+        values: {{ toJson $guarded }}
+        {{- end }}
+  # Must stay explicit: a deny-only policy without this puts every selected pod
+  # into default-deny for that direction.
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  egressDeny:
+    - toCIDR: {{ toJson .Values.denyEgressCidrs }}
+    - toEntities:
+        - host
+        - remote-node
+      toPorts:
+        - ports:
+            {{- range .Values.denyEgressNodePorts }}
+            - port: {{ . | quote }}
+              protocol: TCP
+            {{- end }}
+    # Every kube-system pod except CoreDNS (one selector per dns.podLabels
+    # entry - a pod missing any of them is denied).
+    - toEndpoints:
+        {{- range $key, $value := .Values.dns.podLabels }}
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+          matchExpressions:
+            - key: k8s:{{ $key }}
+              operator: NotIn
+              values: [{{ $value | quote }}]
+        {{- end }}
