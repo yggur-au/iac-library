@@ -1,0 +1,36 @@
+{{- /*
+One cross-namespace policy per app namespace. kube-system is left out of the
+egress deny here because the baseline policy already denies every kube-system
+pod except CoreDNS.
+*/}}
+{{- $gatewayPeer := dict "namespace" .Values.gateway.namespace "podLabels" .Values.gateway.podLabels }}
+{{- range $ns, $cfg := .Values.namespaces }}
+{{- $cfg = $cfg | default dict }}
+---
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: {{ include "network-guardrails.fullname" $ }}-{{ $ns }}
+  labels:
+    {{- include "network-guardrails.labels" $ | nindent 4 }}
+spec:
+  description: "Deny-only: {{ $ns }} pods may not talk to pods in other namespaces except the Envoy Gateway proxies, CoreDNS and listed exceptions"
+  endpointSelector:
+    matchLabels:
+      k8s:io.kubernetes.pod.namespace: {{ $ns }}
+  # Must stay explicit: a deny-only policy without this puts every selected pod
+  # into default-deny for that direction.
+  enableDefaultDeny:
+    ingress: false
+    egress: false
+  ingressDeny:
+    - fromEndpoints:
+        {{- include "network-guardrails.denySelectors" (dict "self" $ns "extra" list "peers" (prepend ($cfg.allowIngressFrom | default list) $gatewayPeer)) | trim | nindent 8 }}
+  egressDeny:
+    - toEndpoints:
+        {{- include "network-guardrails.denySelectors" (dict "self" $ns "extra" (list "kube-system") "peers" (prepend ($cfg.allowEgressTo | default list) $gatewayPeer)) | trim | nindent 8 }}
+    {{- if not $cfg.allowKubeApiServer }}
+    - toEntities:
+        - kube-apiserver
+    {{- end }}
+{{- end }}
