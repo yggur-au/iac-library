@@ -1,6 +1,6 @@
 # network-guardrails
 
-Cluster-wide Cilium network guardrails for the apps AKS cluster: **no in-cluster traffic between app namespaces** - app-to-app traffic has to go out through the shared Envoy Gateway by hostname (see `streams/apps/envoy`), where it is subject to the Gateway's TLS and routing. Policy objects only (`CiliumClusterwideNetworkPolicy`, CCNP) - no pods, no chart dependencies, no images.
+Cluster-wide Cilium network guardrails for the apps AKS cluster: **no in-cluster traffic between app namespaces** - app-to-app traffic has to go out through the shared Envoy Gateway by hostname, where it is subject to the Gateway's TLS and routing. Policy objects only (`CiliumClusterwideNetworkPolicy`, CCNP) - no pods, no chart dependencies, no images.
 
 ## Model
 
